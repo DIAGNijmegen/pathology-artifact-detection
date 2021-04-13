@@ -1,9 +1,9 @@
-![artifact-segmentation](https://github.com/gsmit/artifact-segmentation/blob/main/images/header.png?raw=true)
+![artifact-segmentation](https://github.com/DIAGNijmegen/pathology-artifact-detection/blob/main/images/header.png?raw=true)
 
 # Multi-class semantic segmentation of artifacts
 Due to the presence of artifacts in digitized histopathology images, tissue regions that are important for diagnosis can be unclear or even completely unusable. As a result, artifacts may interfere with an accurate diagnosis by pathologists or lead to erroneous analyses by deep learning algorithms. By detecting commonly found artifacts, it is possible to improve the process of automated diagnosis. Images with too many artifacts can automatically be rejected by our quality control system, potentially saving many hours of manual inspection.
 
-*Please note that some of the used utility functions are from a private repository; such as batch generator. Therefore, some files have been excluded on purpose, so it is not guaranteed that the code is working 100% properly.*
+*This repository includes the core functionality of the multi-class artifact segmentation method. Please note that some of the used utility functions are from a private repository; such as batch generator. We will update the repo as soon as a public version of our batch generator is published. *
 
 ## Included artifacts
 The system detects the following artifact types:
