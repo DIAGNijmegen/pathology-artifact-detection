@@ -3,7 +3,7 @@
 # Multi-class semantic segmentation of artifacts
 Due to the presence of artifacts in digitized histopathology images, tissue regions that are important for diagnosis can be unclear or even completely unusable. As a result, artifacts may interfere with an accurate diagnosis by pathologists or lead to erroneous analyses by deep learning algorithms. By detecting commonly found artifacts, it is possible to improve the process of automated diagnosis. Images with too many artifacts can automatically be rejected by our quality control system, potentially saving many hours of manual inspection.
 
-*This repository includes the core functionality of the multi-class artifact segmentation method. Please note that some of the used utility functions are from a private repository; such as batch generator. We will update the repo as soon as a public version of our batch generator is published. *
+*This repository includes the core functionality of the multi-class artifact segmentation method. Please note that some of the used utility functions are from a private repository; such as batch generator. We will update the repo as soon as a public version of our batch generator is published.*
 
 ## Included artifacts
 The system detects the following artifact types:
