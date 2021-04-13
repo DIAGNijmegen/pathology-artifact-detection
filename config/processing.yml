@@ -1,0 +1,36 @@
+# paths to checkpoints and output folder
+artifact_network: /.../path/to/checkpoints/artifact_network.pth
+tissue_network: /.../path/to/checkpoints/tissue_network.net
+output_folder: /.../path/to/inference
+
+# architecure settings
+architecture: deeplabv3plus
+encoder_name: efficientnet-b2
+encoder_weights: imagenet
+use_batchnorm: true
+pooling: avg
+dropout: 0.4
+spacing: 4.0
+
+# torch settings
+device: cuda
+workers: 4
+
+# tissue settings
+minimum_region: 5000
+minimum_hole: 1000
+remove_mask: true
+
+# artifact settings
+overlap: 256
+tile_size: 1024
+tissue_spacing: 4.0
+region_threshold: 10.0
+hole_threshold: 200.0
+num_classes: 7
+
+# slides to process
+input_files:
+  - /..../path/to/slide1.tiff
+  - /..../path/to/slide2.tiff
+  - /..../path/to/slide3.tiff

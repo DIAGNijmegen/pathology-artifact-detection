@@ -1,0 +1,70 @@
+---
+save_checkpoints: true
+checkpoint_name: segmentation_baseline.pth
+checkpoint_dir: /.../path/to/checkpoints
+plot_dir: /.../path/to/output
+data_dir: /.../path/to/data
+seed: 1234
+
+architecture: deeplabv3plus
+encoder_name: resnet50
+encoder_weights: imagenet
+use_batchnorm: true
+aux_params: null
+device: cuda
+workers: 4
+
+loss: generalized_dice
+optimizer: adam
+metrics:
+  - dice_score
+  - iou_score
+  - accuracy
+rounding: 0.5
+ignore_channels: null
+
+lr: 1.0e-4
+batch_size: 4
+epochs: 30
+
+scheduler: steplr
+step_size: 10
+gamma: 0.5
+
+classes: 
+  - Tissue folds
+  - Ink
+  - Air bubbles
+  - Dust
+  - Marker
+  - Out-of-focus
+
+spacing: 2.0
+tolerance: 0.25
+patch_size: 256
+overlap: 32
+minimum: 0.03125
+balance: null
+verbose: true
+
+normalize: simple
+transform: light
+eval_dir: /.../path/to/transform
+
+ink_filters: null
+
+train_images: /.../path/to/data/X_train.npy
+train_masks: /.../path/to/data/y_train.npy
+valid_images: /.../path/to/data/X_valid.npy
+valid_masks: /.../path/to/data/y_valid.npy
+
+train_paths:
+  - image: /.../path/to/slide1.tiff
+    mask: /.../path/to/mask1.tiff
+  - image: /.../path/to/slide2.tiff
+    mask: /.../path/to/mask2.tiff
+
+valid_paths:
+  - image: /.../path/to/slide3.tiff
+    mask: /../path/to/mask3.tiff
+...
