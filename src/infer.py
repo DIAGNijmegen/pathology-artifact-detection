@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 import matplotlib.pyplot as plt
+import glob
 
 import timm
 import torch
@@ -512,42 +513,61 @@ def main(config):
 
     # image reader settings
     spacing = config['spacing']
-    input_files = config['input_files']
+    input_files = glob.glob(config['input_path'])
+    mask_path = config['mask_path']
     output_dir = config['output_folder']
     print(f'Processing total of {len(input_files)} slides...')
 
     for e, file_path in enumerate(input_files):
         print(f'Processing: {file_path}')
 
-        # run tissue segmentation network
         file_name = file_path.split('/')[-1].split('.')[0]
         artifacts_path = os.path.join(output_dir, file_name + '_artifacts.tif')
-        background_path = os.path.join(output_dir, file_name + '_background.tif')
         results_path = os.path.join(output_dir, file_name + '_results.json')
 
-        # set patch size and spacing
-        image_reader = ImageReader(file_path, spacing_tolerance=0.25)
-        image_level = image_reader.level(spacing)
-        img_spacing = image_reader.spacings[image_level]
-        image = image_reader.content(img_spacing)
-        tile_size = config['tile_size']
-        min_length = min(image.shape[0], image.shape[1])
-        if tile_size > min_length:
-            tile_size = min_length
-        del image_reader, image_level, image
+        # run tissue segmentation network if mask_path is not provided
+        if mask_path is None:
+            background_path = os.path.join(output_dir, file_name + '_background.tif')
 
-        # run tissue segmentation network
-        detect_tissue(
-            input_path=file_path,
-            output_dir=output_dir,
-            model_path=config['tissue_network'],
-            patch_size=tile_size,
-            config=config)
+            # set patch size and spacing
+            image_reader = ImageReader(file_path, spacing_tolerance=0.25)
+            image_level = image_reader.level(spacing)
+            img_spacing = image_reader.spacings[image_level]
+            image = image_reader.content(img_spacing)
+            tile_size = config['tile_size']
+            min_length = min(image.shape[0], image.shape[1])
+            if tile_size > min_length:
+                tile_size = min_length
+            del image_reader, image_level, image
 
-        # clear gpu memory
-        keras.backend.clear_session()
-        print(gc.collect())
-        reset_keras()
+            # run tissue segmentation network
+            detect_tissue(
+                input_path=file_path,
+                output_dir=output_dir,
+                model_path=config['tissue_network'],
+                patch_size=tile_size,
+                config=config)
+
+            # clear gpu memory
+            keras.backend.clear_session()
+            print(gc.collect())
+            reset_keras()
+
+            # read background image
+            image_reader = ImageReader(background_path, spacing_tolerance=0.25)
+            image_level = image_reader.level(spacing)
+            img_spacing = image_reader.spacings[image_level]
+            background = image_reader.content(img_spacing)
+            print('Background shape:', background.shape)
+
+        # if mask_path is provided, read the mask file
+        else:
+            background_path = mask_path.format(image=file_name)
+            image_reader = ImageReader(background_path, spacing_tolerance=0.25)
+            image_level = image_reader.level(spacing)
+            img_spacing = image_reader.spacings[image_level]
+            background = image_reader.content(img_spacing)
+            print('Background shape:', background.shape)
 
         # read input image
         image_reader = ImageReader(file_path, spacing_tolerance=0.25)
@@ -555,13 +575,6 @@ def main(config):
         img_spacing = image_reader.spacings[image_level]
         image = image_reader.content(img_spacing)
         print('Image shape:', image.shape)
-
-        # read background image
-        image_reader = ImageReader(background_path, spacing_tolerance=0.25)
-        image_level = image_reader.level(spacing)
-        img_spacing = image_reader.spacings[image_level]
-        background = image_reader.content(img_spacing)
-        print('Background shape:', background.shape)
 
         # initialize slide classifier
         clf = SlideClassifier(config=config)
@@ -687,7 +700,8 @@ def main(config):
         print('Saved quality score to:', results_path)
 
         if config['remove_mask']:
-            os.remove(background_path)
+            if mask_path is None:
+                os.remove(background_path)
 
 
 if __name__ == '__main__':

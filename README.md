@@ -43,6 +43,8 @@ Prepare a configuration file (e.g., named `config.yml`):
 artifact_network: /.../path/to/checkpoints/artifact_network.pth
 quality_network: /.../path/to/checkpoints/quality_score_network.ckpt
 tissue_network: /.../path/to/checkpoints/tissue_network.net
+input_path: /.../path/to/input/files/*.mrxs
+mask_path: /.../path/to/tissue/masks/{image}.tif
 output_folder: /.../path/to/output/directory
 # architecure settings
 architecture: deeplabv3plus
@@ -66,12 +68,6 @@ tissue_spacing: 4.0
 region_threshold: 10.0
 hole_threshold: 200.0
 num_classes: 7
-# slides to process
-input_files:
-  - /.../path/to/slides/image1.tif
-  - /.../path/to/slides/image2.tif
-  - /.../path/to/slides/image3.tif
-  - ...
 ```
 
 Run `infer.py` using the Docker image:
@@ -85,7 +81,7 @@ python3.7 /home/user/source/artifact-segmentation/src/infer.py \
 ```
 
 ## Training
-Copy (and change paramaters of) the configuration file `training.yml`:
+Copy (and change parameters of) the configuration file `training.yml`:
 
 Run `train.py` using the Docker image:
 
