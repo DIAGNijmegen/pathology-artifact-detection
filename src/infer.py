@@ -140,7 +140,7 @@ def predict_array(self, m):
 
 
 def detect_tissue(input_path, output_dir, model_path, config, patch_size=1024):
-    file_name = input_path.split('/')[-1].split('.')[0]
+    file_name = os.path.splitext(os.path.basename(input_path))
     output_name = file_name + '_background.tif'
     background_path = os.path.join(output_dir, output_name)
     mask_path = None
@@ -521,7 +521,7 @@ def main(config):
     for e, file_path in enumerate(input_files):
         print(f'Processing: {file_path}')
 
-        file_name = file_path.split('/')[-1].split('.')[0]
+        file_name = os.path.splitext(os.path.basename(file_path))
         artifacts_path = os.path.join(output_dir, file_name + '_artifacts.tif')
         results_path = os.path.join(output_dir, file_name + '_results.json')
 
@@ -563,6 +563,11 @@ def main(config):
         # if mask_path is provided, read the mask file
         else:
             background_path = mask_path.format(image=file_name)
+
+            if not os.path.exists(background_path):
+                print(f"Mask does not exist for {file_name}. Skipping...")
+                continue
+
             image_reader = ImageReader(background_path, spacing_tolerance=0.25)
             image_level = image_reader.level(spacing)
             img_spacing = image_reader.spacings[image_level]
