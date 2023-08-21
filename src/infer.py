@@ -140,7 +140,7 @@ def predict_array(self, m):
 
 
 def detect_tissue(input_path, output_dir, model_path, config, patch_size=1024):
-    file_name = os.path.splitext(os.path.basename(input_path))
+    file_name = os.path.splitext(os.path.basename(input_path))[0]
     output_name = file_name + '_background.tif'
     background_path = os.path.join(output_dir, output_name)
     mask_path = None
@@ -521,7 +521,7 @@ def main(config):
     for e, file_path in enumerate(input_files):
         print(f'Processing: {file_path}')
 
-        file_name = os.path.splitext(os.path.basename(file_path))
+        file_name = os.path.splitext(os.path.basename(file_path))[0]
         artifacts_path = os.path.join(output_dir, file_name + '_artifacts.tif')
         results_path = os.path.join(output_dir, file_name + '_results.json')
 
