@@ -177,7 +177,7 @@ def load_train_transform(transform_type, patch_size=512):
 
             A.OneOf([
                 A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=1.0),
-                A.IAASharpen(alpha=(0.2, 0.5), lightness=(0.5, 1.0), p=1.0),
+                A.Sharpen(alpha=(0.2, 0.5), lightness=(0.5, 1.0), p=1.0),
                 A.ImageCompression(quality_lower=60, quality_upper=100, compression_type=0, p=1.0)], p=0.5),
 
             A.PadIfNeeded(patch_size, patch_size)

@@ -9,14 +9,13 @@ import cv2
 import json
 import time
 import yaml
-import keras
 import torch
 import argparse
-import skimage.io
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 import matplotlib.pyplot as plt
+import glob
 
 import timm
 import torch
@@ -24,62 +23,17 @@ import torch.utils.data
 import torch.nn.functional as F
 import pytorch_lightning as pl
 
-import digitalpathology.image.processing.regions as dptregions
-import digitalpathology.image.processing.inference as dptinference
-import digitalpathology.errors.imageerrors as dptimageerrors
-import digitalpathology.utils.loggers as dptloggers
+from utils.digitalpathology import filter_regions_array, fill_holes_array
 
 from torch.utils.data import DataLoader
 from skimage.util.shape import view_as_windows
 from segmentation_models_pytorch import Unet, PSPNet, PAN, DeepLabV3Plus
 
-from digitalpathology.image.io.imagereader import ImageReader
-from digitalpathology.image.io.imagewriter import ImageWriter
-
-from keras.backend.tensorflow_backend import set_session
-from keras.backend.tensorflow_backend import clear_session
-from keras.backend.tensorflow_backend import get_session
+from utils.wsd_image import ImageReader, ArrayImageWriter
 
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
 from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR
-from pytorch_lightning.metrics.functional.classification import auroc
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from pytorch_lightning.loggers.neptune import NeptuneLogger
-from pytorch_lightning.callbacks import ModelCheckpoint
-
-gpu_memory = 0.25
-config = tf.ConfigProto()
-config.gpu_options.per_process_gpu_memory_fraction = gpu_memory
-config.gpu_options.visible_device_list = '0'
-set_session(tf.Session(config=config))
-
-
-def reset_keras():
-    """Resets a Keras session and clears memory."""
-
-    sess = get_session()
-    clear_session()
-    sess.close()
-    sess = get_session()
-
-    try:
-        del network  # this is from global space - change this as you need
-    except:
-        pass
-
-    try:
-        del network_model  # this is from global space - change this as you need
-    except:
-        pass
-
-    print(gc.collect())  # if it's done something you should see a number being outputted
-
-    # use the same config as you used to create the session
-    config = tf.ConfigProto()
-    config.gpu_options.per_process_gpu_memory_fraction = gpu_memory
-    config.gpu_options.visible_device_list = '0'
-    set_session(tf.Session(config=config))
 
 
 def augment_image(image):
@@ -138,54 +92,6 @@ def predict_array(self, m):
     return pred
 
 
-def detect_tissue(input_path, output_dir, model_path, config, patch_size=1024):
-    file_name = input_path.split('/')[-1].split('.')[0]
-    output_name = file_name + '_background.tif'
-    background_path = os.path.join(output_dir, output_name)
-    mask_path = None
-
-    successful_items, failed_items = dptinference.apply_network_batch(
-        job_list=[(input_path, mask_path, background_path)],
-        model_path=model_path,
-        patch_size=patch_size,
-        output_class=1,
-        number_of_classes=-1,
-        normalizer='rgb_to_0-1',
-        normalizer_source_range='[]',
-        normalizer_target_range='[]',
-        soft_mode=True,
-        input_spacing=config['tissue_spacing'],
-        output_spacing=config['spacing'],
-        spacing_tolerance=0.25,
-        input_channels=(0, 1, 2),
-        confidence=0.5,
-        test_augmentation=True,
-        minimum_region_diagonal=config['minimum_region'],
-        minimum_hole_diagonal=config['minimum_hole'],
-        dilation_distance=0.0,
-        full_connectivity=True,
-        unrestrict_network=True,
-        quantize=True,
-        interpolation_order=1,
-        copy_path=None,
-        work_path=None,
-        clear_cache=True,
-        keep_intermediates=False,
-        single_mode=False,
-        overwrite=True,
-        touch=True)
-
-    if failed_items:
-        print(f'Failed on {len(failed_items)} items:')
-        for path in failed_items:
-            print(f'{path}')
-
-    # clear gpu memory
-    keras.backend.clear_session()
-    print(gc.collect())
-    reset_keras()
-
-
 def initialize_artifacts_network(config):
     num_classes = config['num_classes']
     activation = 'sigmoid' if num_classes == 1 else 'softmax2d'
@@ -228,8 +134,14 @@ def initialize_artifacts_network(config):
     assert config['architecture'] in models.keys()
     network = models[config['architecture']]
     network = torch.nn.DataParallel(network, device_ids=[0])
-    network.load_state_dict(torch.load(config['artifact_network']))
-    network.to(torch.device('cuda'))
+    checkpoint = torch.load(config['artifact_network'])
+    from collections import OrderedDict
+    new_state_dict = OrderedDict()
+    for key, value in checkpoint.items():
+        key = 'module.'+key # remove `att.`
+        new_state_dict[key] = value
+    network.load_state_dict(new_state_dict)
+    network.to(torch.device(config['device']))
     network.eval()
 
     return network
@@ -248,8 +160,9 @@ def initialize_quality_network(config):
         kernel_size=(3, 3), stride=(2, 2),
         padding=(1, 1), bias=False)
 
-    model = QualityControlClassifier(backbone=backbone)
-    model = model.load_from_checkpoint(config['quality_network'])
+    model = QualityControlClassifier.load_from_checkpoint(config['quality_network'],backbone=backbone)
+    model.to(torch.device(config['device']))
+    model.eval()
     return model
 
 
@@ -362,7 +275,7 @@ class QualityControlClassifier(pl.LightningModule):
         targets = []
 
         for batch_idx, (x_batch, y_batch) in enumerate(train_loader):
-            x_batch = x_batch.to(torch.device('cuda'))
+            x_batch = x_batch.to(torch.device(config['device']))
             y_batch = y_batch.detach().cpu().numpy()
             y_pred = torch.sigmoid(self.backbone(x_batch))
             y_pred = y_pred.detach().cpu().numpy()
@@ -385,7 +298,7 @@ class QualityControlClassifier(pl.LightningModule):
         targets = []
 
         for batch_idx, (x_batch, y_batch) in enumerate(valid_loader):
-            x_batch = x_batch.to(torch.device('cuda'))
+            x_batch = x_batch.to(torch.device(config['device']))
             y_batch = y_batch.detach().cpu().numpy()
             y_pred = torch.sigmoid(self.backbone(x_batch))
             y_pred = y_pred.detach().cpu().numpy()
@@ -454,34 +367,6 @@ def crop_image(image, mask, size=(1024, 1024)):
     return image, mask, valid_bbox
 
 
-# def combine_mask_background(mask, background):
-#     """Combines the artifact segmentation mask and background mask."""
-#
-#     num_classes = mask.shape[2]
-#     mask = np.argmax(mask, axis=-1)
-#     mask = [(mask == v) for v in range(num_classes)]
-#     mask = [m[:, :, np.newaxis] for m in mask]
-#     mask = np.concatenate(mask, axis=-1)
-#     mask = mask.astype(np.uint8)
-#
-#     mask[background == 1] = 0
-#
-#     image = np.argmax(image, axis=-1)
-#     image = [(image == v) for v in range(self.num_classes)]
-#     image = [m[:, :, np.newaxis] for m in image]
-#     image = np.concatenate(image, axis=-1)
-#     image = image.astype(np.uint8)
-
-
-# def stack_channel_features(mask, background):
-#     label_map = {'tissue': 2, 'ink': 3, 'air': 4, 'dust': 5, 'marker': 6, 'focus': 7}
-#
-#     values = [v for k, v in label_map]
-#     features = [(mask == v) for v in values]
-#     features = features
-#     mask = np.stack(masks, axis=-1).astype(np.uint8)
-
-
 def prepare_input(image, mask, num_classes=7):
     image = image / 255.
     tissue = np.where(mask > 0, 1, 0)
@@ -507,12 +392,21 @@ def main(config):
 
     # initialize and evaluate classification network
     quality_network = initialize_quality_network(config=config)
-    quality_network(torch.randn(1, 10, 1024, 1024))
+    quality_network(torch.randn(1, 10, 1024, 1024).to(config['device']))
     print('Successfully loaded quality score classification network!')
 
     # image reader settings
     spacing = config['spacing']
-    input_files = config['input_files']
+    input_files = glob.glob(config['input_path'])
+    dicom = False
+    if os.path.isdir(input_files[0]):
+        dicom = True
+        for i, el in enumerate(input_files):
+            try:
+                input_files[i] = glob.glob(el+'/*.dcm')[0]
+            except:
+                input_files.remove(el)
+    mask_path = config['mask_path']
     output_dir = config['output_folder']
     print(f'Processing total of {len(input_files)} slides...')
 
@@ -520,34 +414,15 @@ def main(config):
         print(f'Processing: {file_path}')
 
         # run tissue segmentation network
-        file_name = file_path.split('/')[-1].split('.')[0]
+        if dicom:
+            file_name = file_path.split('/')[-2]
+        else:
+            file_name = os.path.splitext(os.path.basename(file_path))[0]
         artifacts_path = os.path.join(output_dir, file_name + '_artifacts.tif')
-        background_path = os.path.join(output_dir, file_name + '_background.tif')
+        if os.path.exists(artifacts_path):
+            continue
+        background_path = mask_path.format(image=file_name)
         results_path = os.path.join(output_dir, file_name + '_results.json')
-
-        # set patch size and spacing
-        image_reader = ImageReader(file_path, spacing_tolerance=0.25)
-        image_level = image_reader.level(spacing)
-        img_spacing = image_reader.spacings[image_level]
-        image = image_reader.content(img_spacing)
-        tile_size = config['tile_size']
-        min_length = min(image.shape[0], image.shape[1])
-        if tile_size > min_length:
-            tile_size = min_length
-        del image_reader, image_level, image
-
-        # run tissue segmentation network
-        detect_tissue(
-            input_path=file_path,
-            output_dir=output_dir,
-            model_path=config['tissue_network'],
-            patch_size=tile_size,
-            config=config)
-
-        # clear gpu memory
-        keras.backend.clear_session()
-        print(gc.collect())
-        reset_keras()
 
         # read input image
         image_reader = ImageReader(file_path, spacing_tolerance=0.25)
@@ -566,6 +441,9 @@ def main(config):
         # initialize slide classifier
         clf = SlideClassifier(config=config)
 
+        if config['new_tb']:
+            background=np.where(background==1, 0, background)
+            background=np.where(background==2, 1, background)
         if len(background.shape) == 3 and background.shape[2] == 1:
             background_3d = np.concatenate([background] * 3, axis=-1)
         else:
@@ -590,7 +468,7 @@ def main(config):
                 batch = torch.Tensor(batch)  # transform to torch tensor
 
                 with torch.no_grad():
-                    batch = batch.to(torch.device('cuda'))
+                    batch = batch.to(torch.device(config['device']))
                     y_pred, _ = artifacts_network.forward(batch)
                     y_pred = y_pred.detach().cpu().numpy()
 
@@ -623,7 +501,7 @@ def main(config):
         # create binary artifact mask
         binary = np.where(artifacts > 0, 1, 0)
 
-        filtered, _, _ = dptregions.filter_regions_array(
+        filtered, _, _ = filter_regions_array(
             input_array=binary,
             diagonal_threshold=t1,
             full_connectivity=True,
@@ -637,7 +515,7 @@ def main(config):
             idx = i + 1
             array = np.where(filtered == idx, 1, 0)
 
-            filled, _, _ = dptregions.fill_holes_array(
+            filled, _, _ = fill_holes_array(
                 input_array=array,
                 diagonal_threshold=t2,
                 full_connectivity=True,
@@ -650,28 +528,15 @@ def main(config):
         combined = np.where(binary == background, filtered, background).astype(np.uint8)
 
         # save filtered output
-        writer = ImageWriter(
-            image_path=artifacts_path,
-            shape=(image.shape[0], image.shape[1]),
-            spacing=spacing,
-            dtype=np.uint8,
-            coding='indexed',
-            indexed_channels=1,
-            compression=None,
-            interpolation=None,
-            tile_size=512,
-            jpeg_quality=None,
-            empty_value=0,
-            skip_empty=None,
-            cache_path=None)
-
-        writer.fill(combined)
-        writer.close()
+        writer = ArrayImageWriter()
+        writer.write_array(combined, artifacts_path, spacing, verbose=True)
 
         # crop image and mask
         image_crop, mask_crop, valid_bbox = crop_image(image, combined)
         tensor_input = prepare_input(image_crop, mask_crop, num_classes=7)
         tensor_input = torch.unsqueeze(tensor_input, dim=0)
+        tensor_input = tensor_input.to(config['device'])
+
 
         # calculate quality score
         output = quality_network(tensor_input)

@@ -11,9 +11,6 @@ from pathlib import Path
 from itertools import repeat
 from collections import OrderedDict
 
-from digitalpathology.image.processing.conversion import create_annotation_mask
-from digitalpathology.errors.imageerrors import AnnotationOpenError
-
 from .labels import class_labels, conversion_order
 
 
@@ -70,73 +67,6 @@ def save_predictions(out_path, index, image, ground_truth_mask, predicted_mask):
     out_name = os.path.join(out_path, f'predictions_{str(index).zfill(5)}.png')
     plt.savefig(out_name)
     plt.close('all')
-
-
-def convert_annotations(img_dir: str, xml_dir: str, out_dir: str, suffix: str = '_mask'):
-    """Converts all image/annotation pairs in a directory to masks."""
-
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
-
-    # Find al XML files in the given directory.
-    xml_files = []
-    for file in os.listdir(xml_dir):
-        if file.endswith('.xml'):
-            xml_files.append(file)
-
-    # Find al image files in the given directory.
-    img_files = []
-    for path, sub_dirs, files in os.walk(img_dir):
-        for file in files:
-            if file.endswith(('.tif', '.mrxs')):
-                img_files.append(os.path.join(path, file))
-
-    # Save the base names of the files.
-    xml_names = [file.rstrip('.xml') for file in xml_files]
-    img_names = [os.path.basename(file).rstrip('.tif').rstrip('.mrxs') for file in img_files]
-
-    # Get indices of images that have a corresponding annotation.
-    matches = [i for i, x in enumerate(img_names) if x in xml_names]
-
-    img_list = [img_files[i] for i in matches]
-    xml_list = [os.path.join(xml_dir, img_names[i] + '.xml') for i in matches]
-    out_list = [os.path.join(out_dir, img_names[i] + suffix + '.tif') for i in matches]
-
-    # For each image/xml/output triplet, create the mask.
-    for e, (img_path, xml_path, out_path) in enumerate(zip(img_list, xml_list, out_list)):
-        print(f'Processing image: {img_path}')
-
-        try:
-            assert img_path.endswith(('.tif', '.tiff', '.mrxs'))
-            assert xml_path.endswith('.xml')
-            assert out_path.endswith('.tif')
-
-            create_annotation_mask(
-                image=img_path,
-                annotation=xml_path,
-                label_map=class_labels,
-                conversion_order=conversion_order,
-                conversion_spacing=None,
-                spacing_tolerance=0.25,
-                output_path=out_path,
-                strict=True,
-                accept_all_empty=True,
-                work_path=None,
-                clear_cache=True,
-                overwrite=True)
-
-        except AnnotationOpenError:
-            print(f'AnnotationOpenError for annotation {xml_path}')
-
-        print(f'Processed {str(e + 1).zfill(3)}/{str(len(img_list)).zfill(3)} files')
-
-
-def ensure_dir(dirname):
-    """Make sure that a directory exists."""
-
-    dirname = Path(dirname)
-    if not dirname.is_dir():
-        dirname.mkdir(parents=True, exist_ok=False)
 
 
 def read_json(fname):
