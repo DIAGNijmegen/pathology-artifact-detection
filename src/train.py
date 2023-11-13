@@ -34,14 +34,17 @@ def main(cfg):
     # fix random seeds for reproducibility
     seed_everything(seed=cfg['seed'])
 
-    # neptune logging
-    neptune.init(
-        project_qualified_name=cfg['neptune_project_name'],
-        api_token=cfg['neptune_api_token'])
+    if 'neptune_api_token' in cfg.keys():
+        enable_neptune = True
+        neptune.init(
+            project_qualified_name=cfg['neptune_project_name'],
+            api_token=cfg['neptune_api_token'])
 
-    neptune.create_experiment(
-        name=cfg['neptune_experiment'],
-        params=cfg)
+        neptune.create_experiment(
+            name=cfg['neptune_experiment'],
+            params=cfg)
+    else:
+        enable_neptune = False
 
     print('Preparing model and data...')
     print('Using SMP version:', smp.__version__)
@@ -256,7 +259,7 @@ def main(cfg):
         device=cfg['device'],
         save_checkpoints=cfg['save_checkpoints'],
         checkpoint_dir=cfg['checkpoint_dir'],
-        checkpoint_name=cfg['checkpoint_name'])
+        checkpoint_name=cfg['checkpoint_name'], enable_neptune=enable_neptune)
 
     trainer.compile(
         optimizer=optimizer,
@@ -279,8 +282,9 @@ def main(cfg):
     model.to(cfg['device'])
     model.eval()
 
-    # save best checkpoint to neptune
-    neptune.log_artifact(os.path.join(cfg['checkpoint_dir'], cfg['checkpoint_name']))
+    # save best checkpoint to 
+    if enable_neptune:
+        neptune.log_artifact(os.path.join(cfg['checkpoint_dir'], cfg['checkpoint_name']))
 
     # setup directory to save plots
     if os.path.isdir(cfg['plot_dir_valid']):
@@ -332,7 +336,8 @@ def main(cfg):
     valid_preds = np.stack(valid_preds, axis=0)
     valid_preds = valid_preds.flatten()
     dice_score = f1_score(y_true=valid_masks, y_pred=valid_preds, average=None)
-    neptune.log_text('valid_dice_class', str(dice_score))
+    if enable_neptune:
+        neptune.log_text('valid_dice_class', str(dice_score))
     print('Valid dice score (class):', str(dice_score))
 
     if cfg['evaluate_test_set']:
@@ -377,14 +382,15 @@ def main(cfg):
                 ground_truth_mask=gt_mask,
                 predicted_mask=pr_mask)
 
-            # calculate dice per class
-            test_masks = np.stack(test_masks, axis=0)
-            test_masks = test_masks.flatten()
-            test_preds = np.stack(test_preds, axis=0)
-            test_preds = test_preds.flatten()
-            dice_score = f1_score(y_true=test_masks, y_pred=test_preds, average=None)
+        # calculate dice per class
+        test_masks = np.stack(test_masks, axis=0)
+        test_masks = test_masks.flatten()
+        test_preds = np.stack(test_preds, axis=0)
+        test_preds = test_preds.flatten()
+        dice_score = f1_score(y_true=test_masks, y_pred=test_preds, average=None)
+        if enable_neptune:
             neptune.log_text('test_dice_class', str({dice_score}))
-            print('Test dice score (class):', str(dice_score))
+        print('Test dice score (class):', str(dice_score))
 
     # end of training process
     print('Finished training!')
