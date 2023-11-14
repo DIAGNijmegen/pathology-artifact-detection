@@ -441,9 +441,18 @@ def main(config):
         # initialize slide classifier
         clf = SlideClassifier(config=config)
 
-        if config['new_tb']:
-            background=np.where(background==1, 0, background)
-            background=np.where(background==2, 1, background)
+        unique_values = np.unique(background)
+        if len(unique_values) == 2 and 0 in unique_values and 1 in unique_values:
+            background_type = 1
+        elif len(unique_values) == 2 and 1 in unique_values and 2 in unique_values:
+            background_type = 2
+        else:
+            raise ValueError("Unsupported background mask type")
+
+        if background_type == 2:
+            background = np.where(background == 1, 0, background)
+            background = np.where(background == 2, 1, background)
+            
         if len(background.shape) == 3 and background.shape[2] == 1:
             background_3d = np.concatenate([background] * 3, axis=-1)
         else:

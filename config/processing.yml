@@ -30,5 +30,3 @@ hole_threshold: 200.0
 num_classes: 7
 input_path: /.../path/to/input/folder/*.tif
 mask_path: /.../path/to/tissue-background-masks/folder/{image}_tb_mask.tif
-new_tb: False
-
