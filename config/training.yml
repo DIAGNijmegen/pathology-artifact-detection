@@ -7,29 +7,49 @@ data_dir: /.../path/to/data
 seed: 1234
 
 architecture: deeplabv3plus
-encoder_name: resnet50
+encoder_name: efficientnet-b2
 encoder_weights: imagenet
 use_batchnorm: true
-aux_params: null
+pooling: avg
+dropout: 0.4
 device: cuda
 workers: 4
 
-loss: generalized_dice
-optimizer: adam
+loss: dice_loss
+loss_weight: 0.8
+combine: false
 metrics:
-  - dice_score
-  - iou_score
-  - accuracy
+  - name: dice_score
+    type: segmentation
+  - name: dice_loss
+    type: segmentation
+  - name: dice_score
+    type: segmentation
+  - name: cross_entropy
+    type: classification
+  - name: accuracy
+    type: classification
 rounding: 0.5
 ignore_channels: null
 
-lr: 1.0e-4
-batch_size: 4
-epochs: 30
-
-scheduler: steplr
-step_size: 10
+lr: 5.0e-4
+epochs: 75
+batch_size: 40
+optimizer: adam
+scheduler: cosine
+max_round: 75
+eta_min: 1.0e-6
+step_size: 15
 gamma: 0.5
+
+spacing: 4.0
+patch_size_train: 320
+patch_size_valid: 320
+verbose: true
+normalize: simple
+transform: artifact
+eval_dir: /.../path/to/transform
+ink_filters: null
 
 classes: 
   - Tissue folds
@@ -47,24 +67,7 @@ minimum: 0.03125
 balance: null
 verbose: true
 
-normalize: simple
-transform: light
-eval_dir: /.../path/to/transform
 
-ink_filters: null
-
-train_images: /.../path/to/data/X_train.npy
-train_masks: /.../path/to/data/y_train.npy
-valid_images: /.../path/to/data/X_valid.npy
-valid_masks: /.../path/to/data/y_valid.npy
-
-train_paths:
-  - image: /.../path/to/slide1.tiff
-    mask: /.../path/to/mask1.tiff
-  - image: /.../path/to/slide2.tiff
-    mask: /.../path/to/mask2.tiff
-
-valid_paths:
-  - image: /.../path/to/slide3.tiff
-    mask: /../path/to/mask3.tiff
-...
+train_data: /.../path/to/data_train.csv
+valid_data: /.../path/to/data_valid.csv
+test_data: /.../path/to/data_test.csv

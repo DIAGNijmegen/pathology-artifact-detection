@@ -3,8 +3,6 @@
 # Multi-class semantic segmentation of artifacts
 Due to the presence of artifacts in digitized histopathology images, tissue regions that are important for diagnosis can be unclear or even completely unusable. As a result, artifacts may interfere with an accurate diagnosis by pathologists or lead to erroneous analyses by deep learning algorithms. By detecting commonly found artifacts, it is possible to improve the process of automated diagnosis. Images with too many artifacts can automatically be rejected by our quality control system, potentially saving many hours of manual inspection.
 
-*This repository includes the core functionality of the multi-class artifact segmentation method. Please note that some of the used utility functions are from a private repository; such as batch generator. We will update the repo as soon as a public version of our batch generator is published.*
-
 ## Included artifacts
 The system detects the following artifact types:
 1. Tissue folds
@@ -42,7 +40,6 @@ Prepare a configuration file (e.g., named `config.yml`):
 # paths to checkpoints and output folder
 artifact_network: /.../path/to/checkpoints/artifact_network.pth
 quality_network: /.../path/to/checkpoints/quality_score_network.ckpt
-tissue_network: /.../path/to/checkpoints/tissue_network.net
 output_folder: /.../path/to/output/directory
 # architecure settings
 architecture: deeplabv3plus
@@ -67,11 +64,9 @@ region_threshold: 10.0
 hole_threshold: 200.0
 num_classes: 7
 # slides to process
-input_files:
-  - /.../path/to/slides/image1.tif
-  - /.../path/to/slides/image2.tif
-  - /.../path/to/slides/image3.tif
-  - ...
+input_path: /.../path/to/input/folder/*.tif
+# tissue-background segmentation mask
+mask_path: /.../path/to/tissue-background-masks/folder/{image}_tb_mask.tif
 ```
 
 Run `infer.py` using the Docker image:
