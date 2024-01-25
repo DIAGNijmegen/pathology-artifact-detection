@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from monai.networks.utils import one_hot
 from utils import class_count
-
+from collections import OrderedDict
 
 class AverageMetricTracker:
     """Tracker that keeps track of average loss/scores over all batches in an epoch."""
@@ -60,15 +60,18 @@ class AverageMetricTracker:
 class Trainer:
     """Basic class to train segmentation models."""
 
-    def __init__(self, model, device, save_checkpoints=False, checkpoint_dir=None, checkpoint_name='checkpoint', enable_neptune=False):
+    def __init__(self, model, device, save_checkpoints=False, checkpoint_dir=None, checkpoint_name='checkpoint', tracker=None):
         # trainer attributes
         self.model = model
         self.device = device
         self.checkpoint_dir = checkpoint_dir
         self.save_checkpoints = save_checkpoints
-        self.enable_neptune = neptune
         self.checkpoint_name = checkpoint_name
         self.checkpoint_path = os.path.join(self.checkpoint_dir, self.checkpoint_name)
+        self.tracker = tracker
+        if tracker is not None:
+            tracker.define_metric("epoch", summary="max")
+            tracker.define_metric("lr", step_metric="epoch")
 
         if not self.checkpoint_path.endswith('.pth'):
             self.checkpoint_path = self.checkpoint_path + '.pth'
@@ -152,10 +155,9 @@ class Trainer:
             loss_meter.add(loss_value)
             loss_logs = {'loss': loss_meter.mean}
             logs.update(loss_logs)
-
-            # neptune logging (train step)
-            if enable_neptune:
-                neptune.log_metric('train_loss_step', loss_value)
+            
+            if self.tracker is not None:
+                self.tracker.log({f"train/loss_step": loss_value})
 
             for m in self.metrics:
                 metric = m[0]  # unpack metric class
@@ -178,22 +180,22 @@ class Trainer:
                     metric_value = metric(y_pred, y)
                     metric_value = metric_value[0][0] if isinstance(metric_value, tuple) else metric_value
                     metric_value = metric_value.cpu().detach().numpy()
+                    if metric_name == 'dice_score':
+                        metric_value = metric.aggregate().item()
                     metric_trackers[metric_name].add(metric_value)
-
+                    
                 else:
                     raise ValueError(f'Type {metric_type} is not a valid metric type.')
 
-                # neptune logging (train step)
-                if enable_neptune:
-                    neptune.log_metric('train_' + metric_name + '_step', metric_value)
+                #if self.tracker is not None:
+                #    self.tracker.log({f"train/{metric_name}": metric_value})
 
             metrics_logs = {k: v.mean for k, v in metric_trackers.items()}
             logs.update(metrics_logs)
-
-        # neptune logging (train epoch)
-        if enable_neptune:
+        
+        if self.tracker is not None:
             for k, v in logs.items():
-                neptune.log_metric('train_' + k + '_epoch', v)
+                self.tracker.log({f"train/{k}_epoch": v})
 
         duration = time.time() - start
 
@@ -228,10 +230,9 @@ class Trainer:
             loss_meter.add(loss_value)
             loss_logs = {'loss': loss_meter.mean}
             logs.update(loss_logs)
-
-            # neptune logging (valid step)
-            if enable_neptune:
-                neptune.log_metric('valid_loss_step', loss_value)
+            
+            if self.tracker is not None:
+                self.tracker.log({f"valid/loss": loss_value})
 
             for m in self.metrics:
                 metric = m[0]  # unpack metric class
@@ -254,22 +255,23 @@ class Trainer:
                     metric_value = metric(y_pred, y)
                     metric_value = metric_value[0][0] if isinstance(metric_value, tuple) else metric_value
                     metric_value = metric_value.cpu().detach().numpy()
+                    if metric_name == 'dice_score':
+                        metric_value = metric.aggregate().item()
                     metric_trackers[metric_name].add(metric_value)
 
                 else:
                     raise ValueError(f'Type {metric_type} is not a valid metric type.')
-
-                # neptune logging (valid step)
-                if enable_neptune:
-                    neptune.log_metric('valid_' + metric_name + '_step', metric_value)
+                
+                #if self.tracker is not None:
+                #    self.tracker.log({f"valid/{metric_name}_step": metric_value})
+                
 
             metrics_logs = {k: v.mean for k, v in metric_trackers.items()}
             logs.update(metrics_logs)
 
-        # neptune logging (valid epoch)
-        if enable_neptune:
+        if self.tracker is not None:
             for k, v in logs.items():
-                neptune.log_metric('valid_' + k + '_epoch', v)
+                self.tracker.log({f"valid/{k}_epoch": v})
 
         duration = time.time() - start
 
@@ -305,10 +307,6 @@ class Trainer:
             loss_logs = {'loss': loss_meter.mean}
             logs.update(loss_logs)
 
-            # neptune logging (valid step)
-            if enable_neptune:
-                neptune.log_metric('test_loss_step', loss_value)
-
             for m in self.metrics:
                 metric = m[0]  # unpack metric class
                 metric_name = m[1]  # unpack metric name
@@ -330,22 +328,22 @@ class Trainer:
                     metric_value = metric(y_pred, y)
                     metric_value = metric_value[0][0] if isinstance(metric_value, tuple) else metric_value
                     metric_value = metric_value.cpu().detach().numpy()
+                    if metric_name == 'dice_score':
+                        metric_value = metric.aggregate().item()
                     metric_trackers[metric_name].add(metric_value)
 
                 else:
                     raise ValueError(f'Type {metric_type} is not a valid metric type.')
-
-                # neptune logging (valid step)
-                if enable_neptune:
-                    neptune.log_metric('test_' + metric_name + '_step', metric_value)
+                
+                #if self.tracker is not None:
+                #    self.tracker.log({f"test/{metric_name}_step": metric_value})
 
             metrics_logs = {k: v.mean for k, v in metric_trackers.items()}
             logs.update(metrics_logs)
 
-        # neptune logging (valid epoch)
-        if enable_neptune:
+        if self.tracker is not None:
             for k, v in logs.items():
-                neptune.log_metric('test_' + k + '_epoch', v)
+                self.tracker.log({f"test/{k}_epoch": v})
 
         duration = time.time() - start
 
@@ -354,8 +352,13 @@ class Trainer:
 
         return logs
 
-    def _save_checkpoint(self):
-        torch.save(self.model.state_dict(), self.checkpoint_path)
+    def _save_checkpoint(self, epoch):
+        torch.save({
+            'epoch': epoch+1,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'lr_state_dict': self.scheduler.state_dict(),
+        }, self.checkpoint_path)
 
         if self.verbose:
             print('Checkpoint saved!')
@@ -380,8 +383,26 @@ class Trainer:
 
         self.valid_metric = self.metrics[0][1]
         self.best_score = 0.0
+        start_epoch = 0
+        
+        if os.path.exists(self.checkpoint_path):
+            print("Resume training from: ", self.checkpoint_path)
+            checkpoint = torch.load(self.checkpoint_path)
+            new_state_dict = OrderedDict()
+            for k, v in checkpoint['model_state_dict'].items():
+                if 'module' in k:
+                    name = k[7:] # remove `module.`
+                    new_state_dict[name] = v
+                else:
+                    new_state_dict[k] = v
+            self.model.load_state_dict(new_state_dict)
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            self.scheduler.load_state_dict(checkpoint['lr_state_dict'])
+            start_epoch = checkpoint['epoch']
 
-        for epoch in range(self.epochs):
+        for epoch in range(start_epoch, self.epochs):
+            if self.tracker is not None:
+                self.tracker.log({"epoch": epoch + 1})
 
             if self.verbose:
                 print(f'Epoch {epoch + 1}/{self.epochs}')  # starts at zero
@@ -397,7 +418,7 @@ class Trainer:
                 self.best_score = valid_logs[self.valid_metric]
 
                 if self.save_checkpoints:
-                    self._save_checkpoint()
+                    self._save_checkpoint(epoch)
 
         if test_loader:
             print('Starting testing...')

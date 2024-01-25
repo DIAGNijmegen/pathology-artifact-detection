@@ -135,6 +135,8 @@ def initialize_artifacts_network(config):
     network = models[config['architecture']]
     network = torch.nn.DataParallel(network, device_ids=[0])
     checkpoint = torch.load(config['artifact_network'])
+    if 'model_state_dict' in checkpoint.keys():
+        checkpoint = checkpoint['model_state_dict']
     from collections import OrderedDict
     new_state_dict = OrderedDict()
     for key, value in checkpoint.items():
@@ -412,7 +414,7 @@ def main(config):
 
     for e, file_path in enumerate(input_files):
         print(f'Processing: {file_path}')
-
+        start = time.time()
         # run tissue segmentation network
         if dicom:
             file_name = file_path.split('/')[-2]
@@ -422,11 +424,14 @@ def main(config):
         if os.path.exists(artifacts_path):
             continue
         background_path = mask_path.format(image=file_name)
+        if not os.path.exists(background_path):
+            print("Doesn't exist: ", background_path)
+            continue
         results_path = os.path.join(output_dir, file_name + '_results.json')
 
         # read input image
         image_reader = ImageReader(file_path, spacing_tolerance=0.25)
-        image_level = image_reader.level(spacing)
+        image_level = image_reader.level(spacing) 
         img_spacing = image_reader.spacings[image_level]
         image = image_reader.content(img_spacing)
         print('Image shape:', image.shape)
@@ -434,6 +439,7 @@ def main(config):
         # read background image
         image_reader = ImageReader(background_path, spacing_tolerance=0.25)
         image_level = image_reader.level(spacing)
+        
         img_spacing = image_reader.spacings[image_level]
         background = image_reader.content(img_spacing)
         print('Background shape:', background.shape)
@@ -466,7 +472,7 @@ def main(config):
 
         # keep track of predictions
         preds = []
-        start = time.time()
+        
         num_classes = config['num_classes']
 
         for t, array in enumerate(image_tiles):
@@ -491,7 +497,7 @@ def main(config):
 
         preds = np.stack(preds, axis=0)
         duration = round(time.time() - start)
-        print(f'Finished predicting in {duration}s')
+        
 
         # merge individual tiles
         merged = clf.merge_tiles(preds)
@@ -545,24 +551,21 @@ def main(config):
         tensor_input = prepare_input(image_crop, mask_crop, num_classes=7)
         tensor_input = torch.unsqueeze(tensor_input, dim=0)
         tensor_input = tensor_input.to(config['device'])
+        print(f'Finished predicting in {duration}s')
+        if config['compute_quality_score']:
+            # calculate quality score
+            output = quality_network(tensor_input)
+            output = torch.squeeze(output, dim=0)
+            output = output.detach().cpu().numpy()
+            output = np.round(float(output), 2)
+            output = {'quality_score': output}
 
-
-        # calculate quality score
-        output = quality_network(tensor_input)
-        output = torch.squeeze(output, dim=0)
-        output = output.detach().cpu().numpy()
-        output = np.round(float(output), 2)
-        output = {'quality_score': output}
-
-        with open(results_path, 'w') as outfile:
-            json.dump(output, outfile)
+            with open(results_path, 'w') as outfile:
+                json.dump(output, outfile)
+            print('Saved quality score to:', results_path)
 
         print('Saved artifacts mask to:', artifacts_path)
-        print('Saved quality score to:', results_path)
-
-        if config['remove_mask']:
-            os.remove(background_path)
-
+        
 
 if __name__ == '__main__':
     # parse input arguments

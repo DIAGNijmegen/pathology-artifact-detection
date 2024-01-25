@@ -2,7 +2,6 @@ import os
 import yaml
 import torch
 import shutil
-import neptune
 import argparse
 import skimage.io
 import numpy as np
@@ -24,7 +23,7 @@ from torch.nn import BCELoss
 from sklearn.metrics import f1_score
 
 from data import ArtifactDataset, load_train_transform, load_valid_transform
-from utils import seed_everything, save_predictions
+from utils import seed_everything, save_predictions, initialize_wandb
 from trainer import Trainer
 
 
@@ -34,17 +33,11 @@ def main(cfg):
     # fix random seeds for reproducibility
     seed_everything(seed=cfg['seed'])
 
-    if 'neptune_api_token' in cfg.keys():
-        enable_neptune = True
-        neptune.init(
-            project_qualified_name=cfg['neptune_project_name'],
-            api_token=cfg['neptune_api_token'])
-
-        neptune.create_experiment(
-            name=cfg['neptune_experiment'],
-            params=cfg)
+    if cfg['enable_wandb']:
+        key = os.environ.get("WANDB_API_KEY")
+        tracker = initialize_wandb(cfg, key=key, fold=0)
     else:
-        enable_neptune = False
+        tracker = None
 
     print('Preparing model and data...')
     print('Using SMP version:', smp.__version__)
@@ -124,9 +117,7 @@ def main(cfg):
 
     assert all(m['name'] in metrics.keys() for m in cfg['metrics'])
     metrics = [(metrics[m['name']], m['name'], m['type']) for m in cfg['metrics']]  # tuple of (metric, name, type)
-
-    # TODO: Fix metric names
-
+    
     # configure scheduler
     schedulers = {
         'steplr': StepLR(optimizer, step_size=cfg['step_size'], gamma=0.5),
@@ -259,7 +250,7 @@ def main(cfg):
         device=cfg['device'],
         save_checkpoints=cfg['save_checkpoints'],
         checkpoint_dir=cfg['checkpoint_dir'],
-        checkpoint_name=cfg['checkpoint_name'], enable_neptune=enable_neptune)
+        checkpoint_name=cfg['checkpoint_name'], tracker=tracker)
 
     trainer.compile(
         optimizer=optimizer,
@@ -283,8 +274,8 @@ def main(cfg):
     model.eval()
 
     # save best checkpoint to 
-    if enable_neptune:
-        neptune.log_artifact(os.path.join(cfg['checkpoint_dir'], cfg['checkpoint_name']))
+    #if enable_neptune:
+    #    neptune.log_artifact(os.path.join(cfg['checkpoint_dir'], cfg['checkpoint_name']))
 
     # setup directory to save plots
     if os.path.isdir(cfg['plot_dir_valid']):
@@ -336,8 +327,8 @@ def main(cfg):
     valid_preds = np.stack(valid_preds, axis=0)
     valid_preds = valid_preds.flatten()
     dice_score = f1_score(y_true=valid_masks, y_pred=valid_preds, average=None)
-    if enable_neptune:
-        neptune.log_text('valid_dice_class', str(dice_score))
+    #if enable_neptune:
+    #    neptune.log_text('valid_dice_class', str(dice_score))
     print('Valid dice score (class):', str(dice_score))
 
     if cfg['evaluate_test_set']:
@@ -388,9 +379,12 @@ def main(cfg):
         test_preds = np.stack(test_preds, axis=0)
         test_preds = test_preds.flatten()
         dice_score = f1_score(y_true=test_masks, y_pred=test_preds, average=None)
-        if enable_neptune:
-            neptune.log_text('test_dice_class', str({dice_score}))
+        #if enable_neptune:
+        #    neptune.log_text('test_dice_class', str({dice_score}))
         print('Test dice score (class):', str(dice_score))
+
+    if cfg['enable_wandb']:
+        tracker.finish()
 
     # end of training process
     print('Finished training!')
@@ -408,3 +402,4 @@ if __name__ == '__main__':
 
     # run training process
     main(cfg=config)
+    

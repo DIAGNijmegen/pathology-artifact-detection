@@ -11,6 +11,11 @@ from pathlib import Path
 from itertools import repeat
 from collections import OrderedDict
 
+import wandb
+#from omegaconf import DictConfig, OmegaConf
+from typing import Optional, Callable, List
+from pathlib import Path
+
 from .labels import class_labels, conversion_order
 
 
@@ -119,3 +124,60 @@ def get_preprocessing(preprocessing_fn):
         albu.Lambda(image=to_tensor, mask=to_tensor)]
 
     return albu.Compose(_transform)
+
+
+def write_dictconfig(d, f, child: bool = False, ntab=0):
+    for k, v in d.items():
+        if isinstance(v, dict):
+            if not child:
+                f.write(f"{k}:\n")
+            else:
+                for _ in range(ntab):
+                    f.write("\t")
+                f.write(f"- {k}:\n")
+            write_dictconfig(v, f, True, ntab=ntab + 1)
+        else:
+            if isinstance(v, list):
+                if not child:
+                    f.write(f"{k}:\n")
+                    for e in v:
+                        f.write(f"\t- {e}\n")
+                else:
+                    for _ in range(ntab):
+                        f.write("\t")
+                    f.write(f"{k}:\n")
+                    for e in v:
+                        for _ in range(ntab):
+                            f.write("\t")
+                        f.write(f"\t- {e}\n")
+            else:
+                if not child:
+                    f.write(f"{k}: {v}\n")
+                else:
+                    for _ in range(ntab):
+                        f.write("\t")
+                    f.write(f"- {k}: {v}\n")
+
+
+def initialize_wandb(
+    cfg,
+    tags: Optional[List] = None,
+    key: Optional[str] = "",
+    fold = 0
+):
+    command = f"wandb login {key}"
+    if tags == None:
+        tags = []
+
+    run = wandb.init(
+        settings=wandb.Settings(start_method='fork'),
+        project=cfg['project'],
+        entity=cfg['username'],
+        name=cfg['exp_name'] + '_fold_{}'.format(fold),
+        dir=cfg['dir'],
+        tags=tags,
+        config=cfg
+    )
+
+    return run
+
